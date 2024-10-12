@@ -8,10 +8,14 @@
 import SwiftUI
 
 struct ContentView: View {
+    let size = 16
+    let tm = TagManager()
     @State private var grid: Grid
+    @State private var presentAlert = false
+    @State private var tagErrorMessage = ""
 
     init() {
-        self.grid = Grid.generate()
+        self.grid = Grid.generate(size: size)
     }
 
     var body: some View {
@@ -23,8 +27,14 @@ struct ContentView: View {
             Spacer()
 
             HStack {
+                Button("Save to Tag") {
+                    save()
+                }
+
+                Spacer()
+
                 Button("JDI") {
-                    grid = Grid.generate()
+                    grid = Grid.generate(size: size)
                 }
 
                 Spacer()
@@ -33,15 +43,32 @@ struct ContentView: View {
                     _ = grid.data()
                 }
             }
+            .padding([.leading, . trailing, .bottom], 40)
         }
         .padding()
         .onAppear {
-            grid = Grid.generate()
+            grid = Grid.generate(size: size)
+        }
+        .alert("Tag Error", isPresented: $presentAlert) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text(tagErrorMessage)
+        }
+    }
+
+    private func save() {
+        let data = grid.data()
+        do {
+            try tm.write(data: data)
+        } catch {
+            presentAlert = true
+            tagErrorMessage = "Error saving image to tag: \(error.localizedDescription)"
         }
     }
 }
 
 struct RowView: View {
+    // TODO: where does this belong?
     static let colors = [
         Color.red, Color.blue, Color.green, Color.orange,
         Color.yellow, Color.cyan, Color.indigo, Color.mint,
@@ -54,6 +81,7 @@ struct RowView: View {
         HStack(spacing: 0) {
             ForEach(row.cells) { cell in
                 RowView.colors[cell.value]
+                // TODO: nix the magic numbers
                     .frame(width: 20, height: 20)
             }
         }

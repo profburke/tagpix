@@ -7,21 +7,51 @@
 
 import Foundation
 
-public struct Cell: Identifiable {
+public struct Cell: Identifiable, Equatable {
     public let id: Int
     public let value: Int
 }
 
-public class Row: Identifiable {
+public class Row: Identifiable, Equatable {
     public private(set) var cells: [Cell] = []
 
     public func add(cell: Cell) {
         cells.append(cell)
     }
+
+    public static func ==(lhs: Row, rhs: Row) -> Bool {
+        return lhs.cells == rhs.cells
+    }
 }
 
 public class Grid {
     public private(set) var rows: [Row] = []
+    public let size: Int
+
+    public init(size: Int = 16) {
+        self.size = size
+    }
+
+    public init?(from data: Data) {
+        self.size = Int(data[0])
+
+        guard data.count == (size*size + 1) else {
+            return nil
+        }
+
+        func index(_ i: Int, _ j: Int) -> Int {
+            return (i*size) + j + 1
+        }
+
+        (0..<size).forEach { i in
+            let row = Row()
+            (0..<size).forEach { j in
+                let cell = Cell(id: j, value: Int(data[index(i, j)]))
+                row.add(cell: cell)
+            }
+            add(row: row)
+        }
+    }
 
     public func add(row: Row) {
         rows.append(row)
@@ -32,24 +62,22 @@ public class Grid {
 
         rows.forEach { row in
             row.cells.forEach { cell in
-                print(cell.value, separator: " ", terminator: "")
                 values.append(UInt8(cell.value))
             }
             print()
         }
 
+        values.insert(UInt8(size), at: 0)
         let buffer = values.withUnsafeBufferPointer { Data(buffer: $0) }
-        print(buffer)
-        print(buffer as NSData)
 
         return buffer
     }
 
-    static func generate() -> Grid {
-        let g = Grid()
-        (0..<16).forEach { _ in
+    static func generate(size: Int) -> Grid {
+        let g = Grid(size: size)
+        (0..<size).forEach { _ in
             let r = Row()
-            (0..<16).forEach { i in
+            (0..<size).forEach { i in
                 let cell = Cell(id: i, value: Int.random(in: 0..<RowView.colors.count))
                 r.add(cell: cell)
             }
@@ -57,5 +85,11 @@ public class Grid {
         }
 
         return g
+    }
+}
+
+extension Grid: Equatable {
+    public static func ==(lhs: Grid, rhs: Grid) -> Bool {
+        return lhs.rows == rhs.rows
     }
 }
