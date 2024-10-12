@@ -22,8 +22,16 @@ struct ContentView: View {
 
             Spacer()
 
-            Button("JDI") {
-                grid = Grid.generate()
+            HStack {
+                Button("JDI") {
+                    grid = Grid.generate()
+                }
+
+                Spacer()
+
+                Button("data") {
+                    _ = grid.data()
+                }
             }
         }
         .padding()
@@ -34,8 +42,10 @@ struct ContentView: View {
 }
 
 struct RowView: View {
-    let colors = [
-        Color.red, Color.blue, Color.green
+    static let colors = [
+        Color.red, Color.blue, Color.green, Color.orange,
+        Color.yellow, Color.cyan, Color.indigo, Color.mint,
+        Color.teal, Color.pink, Color.purple, Color.brown
     ]
 
     var row: Row
@@ -43,7 +53,7 @@ struct RowView: View {
     var body: some View {
         HStack(spacing: 0) {
             ForEach(row.cells) { cell in
-                colors[cell.value]
+                RowView.colors[cell.value]
                     .frame(width: 20, height: 20)
             }
         }
