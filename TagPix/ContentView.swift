@@ -8,7 +8,11 @@
 import SwiftUI
 
 struct ContentView: View {
-    @State private var grid: [[Int]] = []
+    @State private var grid: Grid
+
+    init() {
+        self.grid = Grid.generate()
+    }
 
     var body: some View {
         VStack {
@@ -19,45 +23,27 @@ struct ContentView: View {
             Spacer()
 
             Button("JDI") {
-                grid = generate()
+                grid = Grid.generate()
             }
         }
         .padding()
         .onAppear {
-            grid = generate()
+            grid = Grid.generate()
         }
-    }
-
-    func generate() -> [[Int]] {
-        var d: [[Int]] = []
-        (0..<16).forEach { _ in
-            var r: [Int] = []
-            (0..<16).forEach { _ in
-                r.append(Int.random(in: 0..<3))
-            }
-            d.append(r)
-        }
-
-        print("rows: \(d.count)")
-        print("cols: \(d[0].count)")
-        let buffer = d.withUnsafeBufferPointer { Data(buffer: $0) }
-        print(buffer as NSData)
-
-        return d
     }
 }
 
-struct Row: View {
+struct RowView: View {
     let colors = [
         Color.red, Color.blue, Color.green
     ]
 
-    var row: [Int]
+    var row: Row
 
     var body: some View {
         HStack(spacing: 0) {
-            ForEach(row, id: \.self) { cell in
-                colors[cell]
+            ForEach(row.cells) { cell in
+                colors[cell.value]
                     .frame(width: 20, height: 20)
             }
         }
@@ -65,12 +51,12 @@ struct Row: View {
 }
 
 struct Pix: View {
-    let grid: [[Int]]
+    let grid: Grid
 
     var body: some View {
         VStack(spacing: 0) {
-            ForEach(grid, id: \.self) { row in
-                Row(row: row)
+            ForEach(grid.rows) { row in
+                RowView(row: row)
             }
         }
     }
