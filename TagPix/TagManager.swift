@@ -8,55 +8,51 @@
 import CoreNFC
 import Foundation
 
-enum TagError: Error {
-    case general
-    case incorrectRecordCount
-    case messageFormat
-    case nfcUnsupported
-    case recordCreation
-}
-
-enum TagMode {
-    case read
-    case write
-}
-
 class TagManager: NSObject, NFCNDEFReaderSessionDelegate {
-    private var readerSession: NFCNDEFReaderSession?
-    private var mode: TagMode = .read
+    static let mimeType = "application/octet-stream"
+
+    private var callback: TagCallback?
     private var data: Data?
+    private var mode: TagMode = .read
+    private var readerSession: NFCNDEFReaderSession?
 
-    // TODO: fill in the following method
-    func readerSession(_ session: NFCNDEFReaderSession, didInvalidateWithError error: Error) {}
-    // The following method is deliberately empty.
-    func readerSession(_ session: NFCNDEFReaderSession, didDetectNDEFs messages: [NFCNDEFMessage]) {}
-
-    func read() throws {
+    // MARK: - Main entry points
+    
+    func read(callback: TagCallback? = nil) {
         guard NFCReaderSession.readingAvailable else {
-            throw TagError.nfcUnsupported
+            callback?(.failure(TagError.nfcUnsupported))
+            return
         }
 
+        self.callback = callback
         mode = .read
         readerSession = NFCNDEFReaderSession(delegate: self,
                                              queue: nil,
                                              invalidateAfterFirstRead: true)
-        readerSession?.alertMessage = "Get closer to the tag to read it!"
+        readerSession?.alertMessage = "Get closer to the tag to read it."
         readerSession?.begin()
     }
 
-    func write(data: Data) throws {
+    func write(data: Data, callback: TagCallback? = nil) {
         guard NFCNDEFReaderSession.readingAvailable else {
-            throw TagError.nfcUnsupported
+            callback?(.failure(TagError.nfcUnsupported))
+            return
         }
 
-        mode = .write
         self.data = data
+        self.callback = callback
+        mode = .write
         readerSession = NFCNDEFReaderSession(delegate: self,
                                              queue: nil,
                                              invalidateAfterFirstRead: true)
-        readerSession?.alertMessage = "Get closer to the tag to write to it!"
+        readerSession?.alertMessage = "Get closer to the tag to write to it."
         readerSession?.begin()
     }
+
+    // MARK: - NFCNDEFReaderSessionDelegate methods
+
+    func readerSession(_ session: NFCNDEFReaderSession, didInvalidateWithError error: Error) {}
+    func readerSession(_ session: NFCNDEFReaderSession, didDetectNDEFs messages: [NFCNDEFMessage]) {}
 
     func readerSession(_ session: NFCNDEFReaderSession, didDetect tags: [any NFCNDEFTag]) {
         if tags.count > 1 {
@@ -67,85 +63,97 @@ class TagManager: NSObject, NFCNDEFReaderSessionDelegate {
             DispatchQueue.global().asyncAfter(deadline: .now() + retryInterval, execute: {
                 session.restartPolling()
             })
+
+            // should we invoke callback?
             return
         }
 
         guard let tag = tags.first else {
             print("Not able to get first tag.")
+            // Should we invalidate session? Run the callback with .failure()?
             session.alertMessage = "Not able to get tag, please try again."
+
+            // should we invoke callback?
             return
         }
 
         // also blocking strict concurrency checks ...
         // possible solution: https://forums.swift.org/t/how-do-i-solve-task-isolated-value-passed-as-strongly-transferred-parameter-warning/73870/2
         Task {
+            let result: Result<SuccessPayload, TagError>
             do {
                 try await session.connect(to: tag)
-                let (status, _) = try await tag.queryNDEFStatus()
+                let (status, capacity) = try await tag.queryNDEFStatus()
+                print(status, capacity)
 
                 switch status {
                 case .notSupported:
                     session.alertMessage = "The tag is not NDEF compliant."
+                    result = .failure(.notSupported)
+
                 case .readOnly:
                     if mode == .read {
                         let message = try await tag.readNDEF()
-                        try processNDEF(message)
+                        result = processNDEF(message)
                     } else {
                         session.alertMessage = "Cannot write; the tag is read-only."
+                        result = .failure(.readOnly)
                     }
                 case .readWrite:
                     if mode == .read {
                         let message = try await tag.readNDEF()
-                        try processNDEF(message)
+                        result = processNDEF(message)
                     } else {
-                        guard let data else {
-                            print("should there be an error message here and/or a throw")
-                            return
+                        if let data {
+                            let message = try createNDEFMessage(data: data)
+                            try await tag.writeNDEF(message)
+                            result = .success(.write)
+                        } else {
+                            result = .failure(.noData)
                         }
-
-                        let message = try createNDEFMessage(data: data)
-                        try await tag.writeNDEF(message)
-
-                        // callback?()
                     }
                 @unknown default:
                     session.alertMessage = "Unknown NDEF tag status."
+                    result = .failure(.unknownStatus)
                 }
-
-                session.invalidate() // FIXME: defer?
             } catch (let error) {
-                // throw ...
                 print("Failed with error: \(error.localizedDescription)")
                 session.alertMessage = "Interacting with the tag failed."
-                session.invalidate()
+                result = .failure(.general)
             }
+
+            callback?(result)
+            session.invalidate()
         }
     }
 
-    private func processNDEF(_ message: NFCNDEFMessage) throws {
-        guard message.records.count == 1 else {
-            throw TagError.incorrectRecordCount
+    // MARK: NDEF Message handling methods
+
+    private func processNDEF(_ message: NFCNDEFMessage) -> Result<SuccessPayload, TagError> {
+        guard message.records.count > 0 else {
+            return .failure(.incorrectRecordCount)
         }
 
         let record = message.records[0]
 
         guard record.typeNameFormat == .media else {
-            throw TagError.messageFormat
+            return .failure(.messageFormat)
         }
 
-        guard let mimeType = String(data: record.type, encoding: .utf8), mimeType == "application/octet-stream" else {
-            throw TagError.messageFormat
+        guard let mimeType = String(data: record.type, encoding: .utf8),
+                mimeType == TagManager.mimeType else {
+            return .failure(.messageFormat)
         }
 
-        guard let grid = Grid(from: record.payload[1...]) else {
-            throw TagError.messageFormat
+        guard let grid = Grid(from: record.payload) else {
+            return .failure(.messageFormat)
         }
 
-        // and then what?
+        return .success(.read(grid))
     }
 
     private func createNDEFMessage(data: Data) throws -> NFCNDEFMessage {
-        guard let type = "application/octet-stream".data(using: .utf8) else {
+        guard let type = TagManager.mimeType.data(using: .utf8) else {
             throw TagError.recordCreation
         }
 
@@ -159,3 +167,30 @@ class TagManager: NSObject, NFCNDEFReaderSessionDelegate {
 
     }
 }
+
+// MARK: - Supporting Type Definitions
+
+enum TagError: Error {
+    case general // TODO: replace this with specific values
+    case incorrectRecordCount
+    case messageFormat
+    case nfcUnsupported
+    case noData
+    case notSupported
+    case readOnly
+    case recordCreation
+    case unknownStatus
+}
+
+enum TagMode {
+    case read
+    case write
+}
+
+enum SuccessPayload {
+    case read(Grid)
+    case write
+}
+
+typealias TagCallback = (Result<SuccessPayload, TagError>) -> Void
+

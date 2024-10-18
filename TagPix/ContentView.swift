@@ -27,20 +27,20 @@ struct ContentView: View {
             Spacer()
 
             HStack {
-                Button("Save to Tag") {
+                Button("Save") {
                     save()
                 }
 
                 Spacer()
 
-                Button("JDI") {
+                Button("New") {
                     grid = Grid.generate(size: size)
                 }
 
                 Spacer()
 
-                Button("data") {
-                    _ = grid.data()
+                Button("Load") {
+                    load()
                 }
             }
             .padding([.leading, . trailing, .bottom], 40)
@@ -56,13 +56,35 @@ struct ContentView: View {
         }
     }
 
+    private func load() {
+        tm.read() { result in
+            if case .success(.read(let newGrid)) = result {
+                tagErrorMessage = "Loaded image from tag!"
+                self.grid = newGrid
+            } else if case .failure(let error) = result {
+                tagErrorMessage = "Error reading image from tag: \(error.localizedDescription)"
+            } else {
+                // should not be able to get here ...
+            }
+
+            presentAlert = true
+        }
+    }
+
     private func save() {
         let data = grid.data()
-        do {
-            try tm.write(data: data)
-        } catch {
+
+        tm.write(data: data) { result in
+            if case .success(.write) = result {
+                // TODO: this isn't really an error ...
+                tagErrorMessage = "Image saved to tag!"
+            } else if case .failure(let error) = result {
+                tagErrorMessage = "Error saving image to tag: \(error.localizedDescription)"
+            } else {
+                // should not be able to get here ...
+            }
+
             presentAlert = true
-            tagErrorMessage = "Error saving image to tag: \(error.localizedDescription)"
         }
     }
 }

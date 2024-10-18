@@ -9,7 +9,7 @@ import Foundation
 
 public struct Cell: Identifiable, Equatable {
     public let id: Int
-    public let value: Int
+    public let value: Int // TODO: change to enum, maybe call it PixColor
 }
 
 public class Row: Identifiable, Equatable {
@@ -24,6 +24,15 @@ public class Row: Identifiable, Equatable {
     }
 }
 
+/*
+ Maybe on init go ahead and allocate the rows and cells
+ fill every spot with clear color; then add a method
+ "draw" or "paint" to fill a spot with a color ...
+
+ if we eventually are going to allow picture editing then
+ we'll need to make the data structure mutable ...
+
+ */
 public class Grid {
     public private(set) var rows: [Row] = []
     public let size: Int
